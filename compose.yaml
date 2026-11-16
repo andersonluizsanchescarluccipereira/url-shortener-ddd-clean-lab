@@ -1,0 +1,55 @@
+version: "2.4"
+services:
+  cassandra:
+    image: docker.io/library/cassandra:4.1
+    container_name: shortener-cassandra
+    environment:
+      CASSANDRA_CLUSTER_NAME: shortener-lab
+      CASSANDRA_DC: datacenter1
+      CASSANDRA_ENDPOINT_SNITCH: GossipingPropertyFileSnitch
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    networks: [shortener]
+    # Em lab, porta 9042 não precisa ser exposta ao host.
+  redis:
+    image: docker.io/library/redis:7.4-alpine
+    container_name: shortener-redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis_data:/data
+    networks: [shortener]
+  api1:
+    image: localhost/url-shortener-lab:dev
+    environment: &common_env
+      CASSANDRA_HOST: cassandra
+      REDIS_HOST: redis
+      PUBLIC_BASE_URL: http://localhost:8080
+      HASHIDS_SALT: ${HASHIDS_SALT:-dev-only-change-this-salt-123456789}
+      JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=70.0
+      APP_INSTANCE: api1
+    depends_on: [cassandra, redis]
+    networks: [shortener]
+    mem_limit: 512m
+  api2:
+    image: localhost/url-shortener-lab:dev
+    environment:
+      <<: *common_env
+      APP_INSTANCE: api2
+    depends_on: [cassandra, redis]
+    networks: [shortener]
+    mem_limit: 512m
+  nginx:
+    image: docker.io/library/nginx:1.27-alpine
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro,Z
+    depends_on: [api1, api2]
+    networks: [shortener]
+networks:
+  shortener: {}
+volumes:
+  cassandra_data: {}
+  redis_data: {}
